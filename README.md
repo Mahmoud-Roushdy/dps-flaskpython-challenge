@@ -90,7 +90,7 @@ JSON
 Step 5: View the Leaderboard
 Check the status of the tournament and see who is winning.
 
-Endpoint: GET http://127.0.0.1:5000/result
+Endpoint: GET http://127.0.0.1:5000/result/1 (Replace '1' with the actual Tournament ID)
 
 Response: Returns the tournament status (Started or Finished), total matches, completed matches, and the sorted leaderboard with detailed stats (Wins, Draws, Losses, Points, Rank).
 
