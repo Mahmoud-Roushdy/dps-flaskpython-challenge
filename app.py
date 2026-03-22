@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 import sqlite3
 import os
 
@@ -7,6 +8,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "database.db")
 
 app = Flask(__name__)
+CORS(app)
 
 
 def get_db_connection():
@@ -263,27 +265,31 @@ def update_scores(match_id):
     )
 
 
-@app.route("/result", methods=["GET"])
-def get_result():
+@app.route("/result/<int:tournament_id>", methods=["GET"])
+def get_result(tournament_id):
     """
     Calculates and returns the leaderboard for the most recent tournament.
     Includes points, wins, draws, losses, and overall ranking.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-
-    # 1. Identify the most recent tournament
-    latest_tour = cursor.execute(
-        "SELECT * FROM tournaments ORDER BY id DESC LIMIT 1"
+    # Now we look for the SPECIFIC ID from the URL, not just the latest one
+    tour = cursor.execute(
+        "SELECT * FROM tournaments WHERE id = ?", (tournament_id,)
     ).fetchone()
 
-    if not latest_tour:
+    if not tour:
         conn.close()
-        return jsonify({"message": "No tournament found"}), 404
+        return jsonify({"message": "Tournament not found"}), 404
+
+    # Use the tournament_id for matches too
+    matches = cursor.execute(
+        "SELECT * FROM matches WHERE tournament_id = ?", (tournament_id,)
+    ).fetchall()
 
     # 2. Fetch all matches and players for this specific tournament
     matches = cursor.execute(
-        "SELECT * FROM matches WHERE tournament_id = ?", (latest_tour["id"],)
+        "SELECT * FROM matches WHERE tournament_id = ?", (tour["id"],)
     ).fetchall()
     players = cursor.execute("SELECT * FROM players").fetchall()
 
@@ -340,9 +346,9 @@ def get_result():
     return (
         jsonify(
             {
-                "tournament_id": latest_tour["id"],
-                "tournament_name": latest_tour["name"],
-                "status": latest_tour["status"],
+                "tournament_id": tour["id"],
+                "tournament_name": tour["name"],
+                "status": tour["status"],
                 "total_matches": len(matches),
                 "completed_matches": completed_count,
                 "leaderboard": leaderboard,
@@ -383,6 +389,43 @@ def reset_tournament():
         conn.close()
 
     return jsonify({"message": message}), status_code
+
+
+@app.route("/tournaments/<int:tournament_id>", methods=["DELETE"])
+def delete_tournament(tournament_id):
+    """
+    Deletes a specific tournament and all its associated matches.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # 1. Check if the tournament exists
+        tournament = cursor.execute(
+            "SELECT id FROM tournaments WHERE id = ?", (tournament_id,)
+        ).fetchone()
+
+        if not tournament:
+            conn.close()
+            return jsonify({"error": "Tournament not found"}), 404
+
+        # 2. Delete matches first (to respect foreign key constraints)
+        cursor.execute("DELETE FROM matches WHERE tournament_id = ?", (tournament_id,))
+
+        # 3. Delete the tournament record
+        cursor.execute("DELETE FROM tournaments WHERE id = ?", (tournament_id,))
+
+        conn.commit()
+        message = f"Tournament {tournament_id} and its matches have been deleted."
+
+    except Exception as e:
+        conn.rollback()
+        message = f"An error occurred: {str(e)}"
+        status_code = 500
+    finally:
+        conn.close()
+
+    return jsonify({"message": message}), 200
 
 
 if __name__ == "__main__":
